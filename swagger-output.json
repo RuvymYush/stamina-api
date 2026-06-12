@@ -1,0 +1,122 @@
+﻿{
+    "openapi":  "3.0.0",
+    "paths":  {
+                  "/players/{playerId}":  {
+                                              "post":  {
+                                                           "operationId":  "StaminaController_createPlayer",
+                                                           "parameters":  [
+                                                                              {
+                                                                                  "name":  "playerId",
+                                                                                  "required":  true,
+                                                                                  "in":  "path",
+                                                                                  "schema":  {
+                                                                                                 "example":  "player1",
+                                                                                                 "type":  "string"
+                                                                                             }
+                                                                              }
+                                                                          ],
+                                                           "responses":  {
+                                                                             "201":  {
+                                                                                         "description":  "Player created with max stamina"
+                                                                                     }
+                                                                         },
+                                                           "summary":  "Register a new player with full stamina",
+                                                           "tags":  [
+                                                                        "Players"
+                                                                    ]
+                                                       }
+                                          },
+                  "/players/{playerId}/stamina":  {
+                                                      "get":  {
+                                                                  "operationId":  "StaminaController_getStamina",
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "playerId",
+                                                                                         "required":  true,
+                                                                                         "in":  "path",
+                                                                                         "schema":  {
+                                                                                                        "example":  "player1",
+                                                                                                        "type":  "string"
+                                                                                                    }
+                                                                                     }
+                                                                                 ],
+                                                                  "responses":  {
+                                                                                    "200":  {
+                                                                                                "description":  "Current stamina snapshot with regen timers"
+                                                                                            }
+                                                                                },
+                                                                  "summary":  "Get current stamina (computes offline regeneration)",
+                                                                  "tags":  [
+                                                                               "Players"
+                                                                           ]
+                                                              }
+                                                  },
+                  "/players/{playerId}/stamina/spend":  {
+                                                            "post":  {
+                                                                         "operationId":  "StaminaController_spendStamina",
+                                                                         "parameters":  [
+                                                                                            {
+                                                                                                "name":  "playerId",
+                                                                                                "required":  true,
+                                                                                                "in":  "path",
+                                                                                                "schema":  {
+                                                                                                               "example":  "player1",
+                                                                                                               "type":  "string"
+                                                                                                           }
+                                                                                            }
+                                                                                        ],
+                                                                         "requestBody":  {
+                                                                                             "required":  false,
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "$ref":  "#/components/schemas/SpendStaminaDto"
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         }
+                                                                                         },
+                                                                         "responses":  {
+                                                                                           "200":  {
+                                                                                                       "description":  "Updated stamina snapshot after spending"
+                                                                                                   }
+                                                                                       },
+                                                                         "summary":  "Spend 1 stamina point",
+                                                                         "tags":  [
+                                                                                      "Players"
+                                                                                  ]
+                                                                     }
+                                                        }
+              },
+    "info":  {
+                 "title":  "Stamina API",
+                 "description":  "Simple server for managing player stamina. Players can spend stamina and regenerate it over time.",
+                 "version":  "1.0",
+                 "contact":  {
+
+                             }
+             },
+    "tags":  [
+
+             ],
+    "servers":  [
+
+                ],
+    "components":  {
+                       "schemas":  {
+                                       "SpendStaminaDto":  {
+                                                               "type":  "object",
+                                                               "properties":  {
+                                                                                  "reason":  {
+                                                                                                 "enum":  [
+                                                                                                              "LEVEL_LOST",
+                                                                                                              "EXIT_TO_MENU",
+                                                                                                              "RESTART_LEVEL"
+                                                                                                          ],
+                                                                                                 "type":  "string",
+                                                                                                 "example":  "LEVEL_LOST"
+                                                                                             }
+                                                                              }
+                                                           }
+                                   }
+                   }
+}
