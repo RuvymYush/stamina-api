@@ -1,1 +1,1 @@
-export const REGEN_INTERVAL = 3000
+export const REGEN_INTERVAL = 10_000
