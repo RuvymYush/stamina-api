@@ -1,98 +1,293 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Stamina API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Серверна частина системи витривалості для мобільної гри з проходженням рівнів.  
+Тестове завдання — **Nordcurrent Dnipro, Middle Back End**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Зміст
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [Опис задачі](#опис-задачі)
+- [Архітектура рішення](#архітектура-рішення)
+- [Схема клієнт-сервер](#схема-клієнт-сервер)
+- [Стек технологій](#стек-технологій)
+- [Запуск](#запуск)
+- [API](#api)
+- [Приклади використання (cURL)](#приклади-використання-curl)
+- [Обробка нештатних ситуацій](#обробка-нештатних-ситуацій)
+- [Структура проєкту](#структура-проєкту)
 
-## Project setup
+---
 
-```bash
-$ npm install
+## Опис задачі
+
+У мобільній грі гравець проходить рівні та має запас **витривалості** (ціле число).  
+Витривалість зменшується на 1 при:
+
+- програші рівня,
+- виході з рівня в меню,
+- перезапуску рівня.
+
+Якщо витривалість нижче максимуму, вона **відновлюється по 1 одиниці** через фіксований інтервал часу. Відлік починається з моменту першої втрати (коли витривалість була максимальною) і повторюється для кожної наступної одиниці.
+
+Кількість очок витривалості відстежується **на сервері** з метою безпеки.
+
+---
+
+## Архітектура рішення
+
+### Серверна регенерація за запитом (lazy regeneration)
+
+Сервер **не використовує таймери чи cron-задачі** для відновлення витривалості.  
+Натомість при кожному зверненні клієнта сервер:
+
+1. Зчитує запис гравця з поточним `stamina` та міткою `regenStartedAt`.
+2. Обчислює, скільки одиниць витривалості мали відновитися з `regenStartedAt` до поточного моменту.
+3. Оновлює значення витривалості та зсуває `regenStartedAt` вперед на кількість цілих інтервалів, що пройшли.
+4. Повертає клієнту актуальний стан.
+
+**Переваги:**
+
+- Нульове навантаження в періоди бездіяльності гравця.
+- Коректна робота після будь-якого простою (вимкнення пристрою, відсутність мережі, тривала перерва).
+- Мінімальний трафік — клієнту потрібен лише один запит, щоб отримати актуальний стан або витратити витривалість.
+
+### Збереження даних
+
+Дані гравців зберігаються у JSON-файлі (`data/players.json`).  
+Запис відбувається через **debounced flush** (інтервал 500 мс) з атомарним перезаписом через тимчасовий файл (`write → rename`), що запобігає пошкодженню даних при аварійному завершенні.
+
+---
+
+## Схема клієнт-сервер
+
+```
+┌─────────────────────────────────────────────────┐
+│                     КЛІЄНТ                      │
+│                                                 │
+│  1. При запуску / поверненні в гру:             │
+│     GET /stamina/:playerId                      │
+│     → отримує поточний стан + час до наступної  │
+│       та повної регенерації                     │
+│                                                 │
+│  2. Програш / вихід / рестарт рівня:            │
+│     POST /stamina/:playerId/spend               │
+│     { "reason": "LEVEL_LOST" }                  │
+│     → сервер перевіряє наявність витривалості,  │
+│       віднімає 1, повертає оновлений стан       │
+│                                                 │
+│  3. Клієнт використовує nextRegenAt / fullRegenAt│
+│     для локального відображення таймерів без     │
+│     додаткових запитів                          │
+└───────────────────────┬─────────────────────────┘
+                        │  HTTP (JSON)
+                        ▼
+┌─────────────────────────────────────────────────┐
+│                     СЕРВЕР                      │
+│                                                 │
+│  • Lazy regeneration — без таймерів             │
+│  • Валідація: stamina > 0 перед витратою        │
+│  • Зберігає: playerId, stamina, regenStartedAt  │
+│  • Персистенція: data/players.json              │
+│  • serverTime в кожній відповіді для синхронізації│
+└─────────────────────────────────────────────────┘
 ```
 
-## Compile and run the project
+**Мінімальний трафік:**  
+Клієнт надсилає лише 1 запит при витраті та 1 запит при поверненні в гру.  
+Таймери регенерації відображаються локально на основі `nextRegenAt` / `fullRegenAt` з відповіді сервера.
+
+---
+
+## Стек технологій
+
+| Технологія            | Призначення                   |
+| --------------------- | ----------------------------- |
+| **TypeScript**        | Мова програмування            |
+| **NestJS**            | Фреймворк                     |
+| **Fastify**           | HTTP-адаптер                  |
+| **class-validator**   | Валідація вхідних даних (DTO) |
+| **Swagger (OpenAPI)** | Документація API              |
+| **JSON-файл**         | Збереження даних              |
+
+---
+
+## Запуск
+
+### Вимоги
+
+- **Node.js** ≥ 20
+
+### Встановлення та запуск
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
+npm start
 ```
 
-## Run tests
+Сервер запуститься на `http://localhost:3000`.  
+Swagger UI доступний за адресою: `http://localhost:3000/swagger`.
+
+---
+
+## API
+
+### Конфігурація за замовчуванням
+
+| Параметр              | Значення                |
+| --------------------- | ----------------------- |
+| Максимум витривалості | `5`                     |
+| Інтервал регенерації  | `10 000 мс` (10 секунд) |
+
+### Ендпоінти
+
+#### `POST /player` — Реєстрація гравця
+
+Створює нового гравця з максимальним запасом витривалості.
+
+**Тіло запиту:**
+
+```json
+{
+  "playerId": "player1"
+}
+```
+
+**Відповідь `201 Created`:**
+
+```json
+{
+  "playerId": "player1",
+  "stamina": 5
+}
+```
+
+---
+
+#### `GET /stamina/:playerId` — Поточний стан витривалості
+
+Повертає актуальну витривалість з урахуванням регенерації, що відбулася з моменту останнього запиту.
+
+**Відповідь `200 OK`:**
+
+```json
+{
+  "playerId": "player1",
+  "currentStamina": 3,
+  "nextRegenAt": 1749753600000,
+  "fullRegenAt": 1749753620000,
+  "serverTime": "2026-06-12T20:00:00.000Z"
+}
+```
+
+| Поле             | Тип              | Опис                                                                |
+| ---------------- | ---------------- | ------------------------------------------------------------------- |
+| `playerId`       | `string`         | Ідентифікатор гравця                                                |
+| `currentStamina` | `number`         | Поточна витривалість                                                |
+| `nextRegenAt`    | `number \| null` | Unix-мітка (мс) наступного відновлення. `null` — витривалість повна |
+| `fullRegenAt`    | `number \| null` | Unix-мітка (мс) повного відновлення. `null` — витривалість повна    |
+| `serverTime`     | `string`         | Поточний час сервера (ISO 8601) для синхронізації годинників        |
+
+---
+
+#### `POST /stamina/:playerId/spend` — Витрата витривалості
+
+Зменшує витривалість на 1. Повертає оновлений стан.
+
+**Тіло запиту (опціональне):**
+
+```json
+{
+  "reason": "LEVEL_LOST"
+}
+```
+
+Допустимі значення `reason`:
+
+| Значення        | Опис                   |
+| --------------- | ---------------------- |
+| `LEVEL_LOST`    | Гравець програв рівень |
+| `EXIT_TO_MENU`  | Вихід з рівня в меню   |
+| `RESTART_LEVEL` | Перезапуск рівня       |
+
+**Відповідь `200 OK`:** — формат аналогічний `GET /stamina/:playerId`.
+
+**Помилки:**
+
+| Код   | Причина                        |
+| ----- | ------------------------------ |
+| `400` | Витривалість вже дорівнює нулю |
+| `404` | Гравець не знайдений           |
+
+---
+
+## Приклади використання (cURL)
 
 ```bash
-# unit tests
-$ npm run test
+# 1. Зареєструвати гравця
+curl -X POST http://localhost:3000/player \
+  -H "Content-Type: application/json" \
+  -d '{"playerId": "hero42"}'
 
-# e2e tests
-$ npm run test:e2e
+# 2. Перевірити витривалість
+curl http://localhost:3000/stamina/hero42
 
-# test coverage
-$ npm run test:cov
+# 3. Витратити витривалість (програш рівня)
+curl -X POST http://localhost:3000/stamina/hero42/spend \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "LEVEL_LOST"}'
+
+# 4. Витратити витривалість (вихід у меню)
+curl -X POST http://localhost:3000/stamina/hero42/spend \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "EXIT_TO_MENU"}'
+
+# 5. Зачекати 10+ секунд та перевірити регенерацію
+curl http://localhost:3000/stamina/hero42
 ```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Обробка нештатних ситуацій
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+| Ситуація                                 | Поведінка                                                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Збій мережі під час гри**              | Клієнт повторює `POST /spend` після відновлення зв'язку. Сервер є єдиним джерелом правди щодо витривалості. |
+| **Вимкнення пристрою / дзвінок**         | Регенерація обчислюється при наступному запиті — немає значення, скільки часу минуло.                       |
+| **Повторний `POST /spend` (дублювання)** | Сервер обробляє кожен запит окремо. Якщо витривалість вже 0 — повертає `400 Bad Request`.                   |
+| **Тривала офлайн-перерва**               | При поверненні `GET /stamina` коректно обчислить усю регенерацію, навіть якщо минуло кілька годин/днів.     |
+| **Аварійне завершення сервера**          | Атомарний запис через `write → rename` та debounced flush мінімізують ризик втрати або пошкодження даних.   |
+| **Маніпуляція годинником клієнта**       | Не впливає — сервер використовує виключно власний `Date.now()` для всіх розрахунків.                        |
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+---
+
+## Структура проєкту
+
 ```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+stamina-api/
+├── src/
+│   ├── main.ts                          # Точка входу, Fastify + Swagger
+│   ├── app.module.ts                    # Кореневий модуль
+│   ├── player/
+│   │   ├── player.controller.ts         # POST /player
+│   │   ├── player.module.ts
+│   │   ├── dto/                         # CreatePlayerReqDto, CreatePlayerResDto
+│   │   ├── interfaces/                  # PlayerRecord
+│   │   └── services/
+│   │       ├── player.service.ts        # Логіка створення гравця
+│   │       └── player-storage.service.ts# JSON-персистенція (debounced, atomic)
+│   └── stamina/
+│       ├── stamina.controller.ts        # GET & POST /stamina/:playerId
+│       ├── stamina.module.ts
+│       ├── constants/                   # MAX_STAMINA, REGEN_INTERVAL
+│       ├── dto/                         # SpendStaminaReqDto, StaminaSnapshotDto
+│       ├── enums/                       # SpendStaminaReason
+│       └── services/
+│           └── stamina.service.ts       # Lazy regeneration, spend logic
+├── data/
+│   └── players.json                     # Збережені дані гравців
+├── test/
+│   └── app.e2e-spec.ts                  # E2E тести
+├── package.json
+└── tsconfig.json
+```
