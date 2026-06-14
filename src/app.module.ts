@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common'
-import { PlayerStorageModule } from './player-storage/player-storage.module.js'
+import { PlayerModule } from './player/player.module.js'
 import { StaminaModule } from './stamina/stamina.module.js'
 
 @Module({
-  imports: [PlayerStorageModule, StaminaModule]
+  imports: [PlayerModule, StaminaModule]
 })
 export class AppModule {}
+

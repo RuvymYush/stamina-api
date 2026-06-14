@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { PlayerRecord } from '../interfaces'
+import type { PlayerRecord } from '../interfaces/index'
 
 const DATA_DIR = path.resolve(process.cwd(), 'data')
 const DATA_FILE = path.join(DATA_DIR, 'players.json')
@@ -10,9 +10,7 @@ const DEBOUNCE_MS = 500
 @Injectable()
 export class PlayerStorageService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PlayerStorageService.name)
-
   private players = new Map<string, PlayerRecord>()
-
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
 
   onModuleInit(): void {
@@ -27,6 +25,10 @@ export class PlayerStorageService implements OnModuleInit, OnModuleDestroy {
     return this.players.get(playerId)
   }
 
+  has(playerId: string): boolean {
+    return this.players.has(playerId)
+  }
+
   save(record: PlayerRecord): void {
     this.players.set(record.playerId, record)
     this.scheduleDebouncedFlush()
@@ -34,12 +36,16 @@ export class PlayerStorageService implements OnModuleInit, OnModuleDestroy {
 
   remove(playerId: string): boolean {
     const deleted = this.players.delete(playerId)
-    if (deleted) this.scheduleDebouncedFlush()
+    if (deleted) {
+      this.scheduleDebouncedFlush()
+    }
     return deleted
   }
 
   private scheduleDebouncedFlush(): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer)
+    }
     this.debounceTimer = setTimeout(() => this.flushNow(), DEBOUNCE_MS)
   }
 
@@ -61,9 +67,7 @@ export class PlayerStorageService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Failed to persist data!', err)
       try {
         fs.unlinkSync(tmpFile)
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
   }
 

@@ -1,28 +1,14 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common'
-import { PlayerStorageService } from 'src/player-storage/services'
-import type { PlayerRecord } from 'src/player-storage/interfaces'
-import { StaminaSnapshotDto } from '../dto'
-import { MAX_STAMINA, REGEN_INTERVAL } from '../constants'
+import { PlayerService } from '../../player/services/index.js'
+import type { PlayerRecord } from '../../player/interfaces/index.js'
+import { StaminaSnapshotDto } from '../dto/index.js'
+import { MAX_STAMINA, REGEN_INTERVAL } from '../constants/index.js'
 
 @Injectable()
 export class StaminaService {
   private readonly logger = new Logger(StaminaService.name)
 
-  constructor(private readonly storage: PlayerStorageService) {}
-
-  createPlayer(playerId: string): StaminaSnapshotDto {
-    if (this.storage.get(playerId))
-      throw new BadRequestException(`Player "${playerId}" already exists.`)
-
-    const record: PlayerRecord = {
-      playerId,
-      stamina: MAX_STAMINA
-    }
-
-    this.storage.save(record)
-    this.logger.log(`Created player ${playerId}`)
-    return this.buildSnapshot(record)
-  }
+  constructor(private readonly storage: PlayerService) {}
 
   getStamina(playerId: string): StaminaSnapshotDto {
     const record = this.applyRegeneration(this.getRecordOrThrow(playerId))
